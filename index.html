@@ -11,28 +11,23 @@
 <body>
   <header>
     <h1>🛡️ D-안전소통보드 자동 생성기</h1>
-    <p class="subtitle">POSCO FUTURE M · D-1 안전회의 결과 → D-안전소통보드 자동 변환</p>
+    <p class="subtitle">POSCO FUTURE M · D-1 안전회의 결과 → D-안전소통보드 (100% 자동, 오프라인)</p>
   </header>
 
   <main>
     <section class="input-section">
-      <label for="excelInput">
-        <strong>1단계.</strong> 엑셀의 'D-1 안전회의 결과' 데이터를 복사해서 붙여넣으세요 (Ctrl+V)
+      <label>
+        <strong>1단계.</strong> 엑셀 <b>데이터 행 1개</b>(헤더 제외)를 선택 후 Ctrl+C → 아래에 Ctrl+V
+        <br><small style="color:#666;">※ 여러 행도 가능하지만, D-안전소통보드는 <b>작업 1건당 1장</b> 발행이므로 한 행 붙여넣기를 권장합니다.</small>
       </label>
-      <textarea id="excelInput" rows="12" 
-        placeholder="예시)&#10;일자&#9;공장&#9;작업장소&#9;작업명&#9;작업인원&#9;...&#10;2024-01-15&#9;1공장&#9;보일러실&#9;배관보수&#9;9&#9;..."></textarea>
+      <textarea id="excelInput" rows="10" 
+        placeholder="예시)  7/22	1	X	포스코투자엔지니어링실	2열연4가열로	포스코	2열연 4가열로	1. Skid Post Beam ..."></textarea>
       
       <div class="btn-group">
-        <button id="generateBtn" class="btn primary">
-          ✨ AI로 보드 생성
-        </button>
+        <button id="generateBtn" class="btn primary">✨ 보드 생성</button>
         <button id="clearBtn" class="btn ghost">🧹 초기화</button>
-        <button id="exportBtn" class="btn success" disabled>
-          📄 워드(.docx) 다운로드
-        </button>
-        <button id="printBtn" class="btn info" disabled>
-          🖨️ 인쇄
-        </button>
+        <button id="exportBtn" class="btn success" disabled>📄 워드(.docx) 다운로드</button>
+        <button id="printBtn" class="btn info" disabled>🖨️ 인쇄</button>
       </div>
 
       <div id="status" class="status hidden"></div>
@@ -41,13 +36,13 @@
     <section class="output-section">
       <h2>📋 D-안전소통보드 미리보기</h2>
       <div id="board" class="board">
-        <p class="placeholder">엑셀 데이터를 붙여넣고 [AI로 보드 생성] 버튼을 눌러주세요.</p>
+        <p class="placeholder">엑셀 데이터를 붙여넣고 [✨ 보드 생성] 버튼을 눌러주세요.</p>
       </div>
     </section>
   </main>
 
   <footer>
-    <small>© POSCO FUTURE M · D-안전소통보드 (구 D-안전카드)</small>
+    <small>© POSCO FUTURE M · D-안전소통보드</small>
   </footer>
 
   <script src="script.js"></script>
