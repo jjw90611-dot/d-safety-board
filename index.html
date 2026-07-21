@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <title>D-안전소통보드 자동 생성기</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/docx/7.8.2/docx.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+<!-- ✅ 검증된 CDN (jsdelivr, UMD 빌드) -->
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 <style>
   body { font-family: 'Malgun Gothic', sans-serif; max-width: 1200px; margin: 20px auto; padding: 20px; }
   h1 { color: #003876; }
@@ -15,19 +16,33 @@
   #status { margin-top: 15px; padding: 10px; border-radius: 4px; }
   .success { background: #d4edda; color: #155724; }
   .error { background: #f8d7da; color: #721c24; }
+  #libStatus { font-size: 12px; color: #666; margin-top: 5px; }
 </style>
 </head>
 <body>
   <h1>🛡️ D-안전소통보드 자동 생성기</h1>
   <div class="info">
-    <b>사용법:</b> 엑셀에서 <b>데이터 행 1줄</b>(헤더 제외)을 복사한 후 아래에 붙여넣고 <b>[워드 파일 생성]</b> 버튼을 클릭하세요.
+    <b>사용법:</b> 엑셀에서 <b>데이터 행</b>을 통째로 복사(헤더 포함되어도 OK)한 후 붙여넣고 <b>[워드 파일 생성]</b> 버튼을 클릭하세요.
   </div>
   <textarea id="input" placeholder="여기에 엑셀 데이터를 붙여넣으세요..."></textarea>
   <br>
   <button onclick="generateWord()">📄 워드 파일 생성</button>
+  <div id="libStatus"></div>
   <div id="status"></div>
 
 <script>
+// 라이브러리 로드 확인
+window.addEventListener('load', () => {
+  const ls = document.getElementById('libStatus');
+  if (typeof docx === 'undefined') {
+    ls.textContent = '⚠️ docx 라이브러리 로드 실패 - 네트워크 확인 필요';
+    ls.style.color = 'red';
+  } else {
+    ls.textContent = '✅ 라이브러리 정상 로드됨 (docx v' + (docx.version || '8.5.0') + ')';
+    ls.style.color = 'green';
+  }
+});
+
 function setStatus(msg, isError) {
   const s = document.getElementById('status');
   s.textContent = msg;
@@ -35,7 +50,7 @@ function setStatus(msg, isError) {
 }
 
 // 엑셀 붙여넣기 파싱 (탭 구분 + 따옴표 안 줄바꿈 처리)
-function parseExcel(text) {
+function parseExcelRow(text) {
   const fields = [];
   let cur = '';
   let inQuote = false;
@@ -46,31 +61,61 @@ function parseExcel(text) {
       else inQuote = !inQuote;
     } else if (c === '\t' && !inQuote) {
       fields.push(cur); cur = '';
-    } else if ((c === '\n' || c === '\r') && !inQuote) {
-      if (cur !== '' || fields.length > 0) { fields.push(cur); cur = ''; }
     } else {
       cur += c;
     }
   }
-  if (cur !== '') fields.push(cur);
+  fields.push(cur);
   return fields;
+}
+
+// 전체 텍스트에서 "데이터 행"만 찾기 (날짜로 시작하는 행)
+function findDataRow(fullText) {
+  // 따옴표 안 줄바꿈은 유지, 따옴표 밖 줄바꿈만 행 구분자로 사용
+  const rows = [];
+  let cur = '';
+  let inQuote = false;
+  for (let i = 0; i < fullText.length; i++) {
+    const c = fullText[i];
+    if (c === '"') {
+      inQuote = !inQuote;
+      cur += c;
+    } else if ((c === '\n' || c === '\r') && !inQuote) {
+      if (cur.trim()) rows.push(cur);
+      cur = '';
+    } else {
+      cur += c;
+    }
+  }
+  if (cur.trim()) rows.push(cur);
+  
+  // 날짜 패턴(M/D 또는 MM/DD)으로 시작 + 탭이 여러 개 있는 행 찾기
+  for (const row of rows) {
+    const firstField = row.split('\t')[0].trim();
+    if (/^\d{1,2}\/\d{1,2}$/.test(firstField) && row.split('\t').length > 10) {
+      return row;
+    }
+  }
+  return rows[rows.length - 1]; // 못 찾으면 마지막 행
 }
 
 // 잠재위험/조치사항을 번호별로 분리
 function splitByNumber(text) {
-  const lines = text.split('\n');
+  if (!text) return [];
+  const lines = text.split(/\r?\n/);
   const items = [];
   let current = null;
   for (let line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    // 1. / 1-1. / 2. / * 로 시작하는 항목
-    const match = trimmed.match(/^(\d+(-\d+)?\.|\*)\s*(.*)/);
+    const match = trimmed.match(/^(\d+(?:-\d+)?\.|\*|※)\s*(.*)/);
     if (match) {
       if (current) items.push(current);
-      current = { no: match[1], text: match[3] };
+      current = { no: match[1].replace('.',''), text: match[2] };
     } else if (current) {
       current.text += ' ' + trimmed;
+    } else {
+      current = { no: '-', text: trimmed };
     }
   }
   if (current) items.push(current);
@@ -79,51 +124,58 @@ function splitByNumber(text) {
 
 function generateWord() {
   try {
+    if (typeof docx === 'undefined') {
+      setStatus('❌ docx 라이브러리가 로드되지 않았습니다. 페이지를 새로고침 하세요.', true);
+      return;
+    }
+
     const raw = document.getElementById('input').value;
     if (!raw.trim()) { setStatus('❌ 데이터를 붙여넣어 주세요.', true); return; }
 
-    const f = parseExcel(raw);
-    console.log('파싱된 필드 수:', f.length, f);
+    const dataRow = findDataRow(raw);
+    const f = parseExcelRow(dataRow);
+    console.log('데이터 행:', dataRow);
+    console.log('파싱된 필드 수:', f.length);
+    console.log('필드 목록:', f);
 
-    // 엑셀 컬럼 매핑 (헤더 기준)
-    // 0:일자 1:NO 2:고위험 3:운전부서-부서 4:운전부서-공장 5:작업지시부서 6:작업장소
-    // 7:작업명 8:인원 9:작업시간 10:협력사 11:하도사 12:작업담당자 13:협력사담당자
-    // 14:잠재위험 15:조치사항 16~26:안전Monitor 배치작업(체크) 27:소속 28:이름 29:CCTV
+    // 컬럼 자동 감지 (날짜가 [0], 그 다음 NO, 고위험, 부서... 순)
     const data = {
       일자: f[0] || '',
+      NO: f[1] || '',
+      고위험: f[2] || '',
+      운전부서: f[3] || '',
+      운전공장: f[4] || '',
+      작업지시부서: f[5] || '',
       작업장소: f[6] || '',
-      운전부서공장: f[4] || '',
       작업명: f[7] || '',
       인원: parseInt(f[8]) || 1,
       작업시간: f[9] || '',
       협력사: f[10] || '',
+      하도사: f[11] || '',
       작업담당자: f[12] || '',
       협력사담당자: f[13] || '',
       잠재위험: f[14] || '',
       조치사항: f[15] || '',
-      감시자소속: f[27] || '',
-      감시자이름: f[28] || '',
-      CCTV: f[29] || ''
+      감시자소속: f[27] || f[f.length-3] || '',
+      감시자이름: f[28] || f[f.length-2] || '',
+      CCTV: (f[29] || f[f.length-1] || '').trim()
     };
+
+    console.log('매핑된 데이터:', data);
 
     const risks = splitByNumber(data.잠재위험);
     const actions = splitByNumber(data.조치사항);
 
-    // 번호 매칭 (같은 번호끼리)
-    const rows = [];
+    // 번호 매칭
     const allNos = [...new Set([...risks.map(r=>r.no), ...actions.map(a=>a.no)])];
-    allNos.forEach(no => {
-      const r = risks.find(x => x.no === no);
-      const a = actions.find(x => x.no === no);
-      rows.push({
-        no: no,
-        risk: r ? r.text : '',
-        action: a ? a.text : ''
-      });
-    });
+    const rows = allNos.map(no => ({
+      no: no,
+      risk: (risks.find(x => x.no === no) || {}).text || '',
+      action: (actions.find(x => x.no === no) || {}).text || ''
+    }));
 
     buildDocx(data, rows);
-    setStatus('✅ 워드 파일이 생성되어 다운로드되었습니다!', false);
+    setStatus('✅ 워드 파일이 생성되어 다운로드되었습니다! (항목 ' + rows.length + '개)', false);
   } catch (e) {
     console.error(e);
     setStatus('❌ 오류: ' + e.message, true);
@@ -131,26 +183,20 @@ function generateWord() {
 }
 
 function buildDocx(d, rows) {
-  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, HeightRule, BorderStyle } = docx;
-
-  const border = { style: BorderStyle.SINGLE, size: 4, color: "000000" };
-  const borders = { top: border, bottom: border, left: border, right: border };
+  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle } = docx;
 
   function cell(text, opts = {}) {
+    const texts = Array.isArray(text) ? text : String(text).split('\n');
     return new TableCell({
-      width: opts.width ? { size: opts.width, type: WidthType.PERCENTAGE } : undefined,
       shading: opts.shade ? { fill: "D9E2F3" } : undefined,
-      children: (Array.isArray(text) ? text : [text]).map(t =>
-        new Paragraph({
-          alignment: opts.align || AlignmentType.LEFT,
-          children: [new TextRun({ text: String(t), bold: opts.bold || false, size: 20 })]
-        })
-      ),
-      columnSpan: opts.span
+      columnSpan: opts.span,
+      children: texts.map(t => new Paragraph({
+        alignment: opts.align || AlignmentType.LEFT,
+        children: [new TextRun({ text: String(t), bold: opts.bold || false, size: 20 })]
+      }))
     });
   }
 
-  // 1. 기본정보 표
   const infoTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [
@@ -164,8 +210,8 @@ function buildDocx(d, rows) {
       new TableRow({ children: [
         cell(d.일자, {align:AlignmentType.CENTER}),
         cell(d.작업시간, {align:AlignmentType.CENTER}),
-        cell(d.운전부서공장 + "\n" + d.작업장소, {align:AlignmentType.CENTER}),
-        cell(d.작업명.split('\n').filter(x=>x.trim())),
+        cell(d.운전공장 + "\n" + d.작업장소, {align:AlignmentType.CENTER}),
+        cell(d.작업명),
         cell(d.인원 + "명", {align:AlignmentType.CENTER}),
       ]}),
       new TableRow({ children: [
@@ -179,18 +225,17 @@ function buildDocx(d, rows) {
         cell(d.작업담당자, {align:AlignmentType.CENTER}),
         cell(d.협력사, {align:AlignmentType.CENTER}),
         cell(d.협력사담당자, {align:AlignmentType.CENTER}),
-        cell(d.감시자이름 + " (" + d.감시자소속 + ")", {align:AlignmentType.CENTER}),
-        cell(d.CCTV === 'O' ? "가동 중(O)" : "미가동(X)", {align:AlignmentType.CENTER}),
+        cell(d.감시자이름 + (d.감시자소속 ? " ("+d.감시자소속+")" : ""), {align:AlignmentType.CENTER}),
+        cell(d.CCTV === 'O' || d.CCTV.includes('가동') ? "가동 중(O)" : "미가동(X)", {align:AlignmentType.CENTER}),
       ]}),
     ]
   });
 
-  // 2. 잠재위험/조치사항 표
   const riskRows = [
     new TableRow({ children: [
-      cell("No.", {shade:true, bold:true, align:AlignmentType.CENTER, width:8}),
-      cell("⚠ 잠재위험", {shade:true, bold:true, align:AlignmentType.CENTER, width:46}),
-      cell("✅ 안전 조치사항", {shade:true, bold:true, align:AlignmentType.CENTER, width:46}),
+      cell("No.", {shade:true, bold:true, align:AlignmentType.CENTER}),
+      cell("⚠ 잠재위험", {shade:true, bold:true, align:AlignmentType.CENTER}),
+      cell("✅ 안전 조치사항", {shade:true, bold:true, align:AlignmentType.CENTER}),
     ]})
   ];
   rows.forEach(r => {
@@ -202,7 +247,6 @@ function buildDocx(d, rows) {
   });
   const riskTable = new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: riskRows });
 
-  // 3. 참석자 서명란 (인원 수만큼)
   const signRows = [
     new TableRow({ children: [
       cell("No.", {shade:true, bold:true, align:AlignmentType.CENTER}),
@@ -220,13 +264,12 @@ function buildDocx(d, rows) {
   }
   const signTable = new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: signRows });
 
-  // 4. 현장소장 확인란
   const finalTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [
       new TableRow({ children: [
-        cell("종사자 의견에 대한 현장 조치 결과 (즉시 개선사항 기재)", {shade:true, bold:true, align:AlignmentType.CENTER, width:75}),
-        cell("용역사 현장소장 확인", {shade:true, bold:true, align:AlignmentType.CENTER, width:25}),
+        cell("종사자 의견에 대한 현장 조치 결과 (즉시 개선사항 기재)", {shade:true, bold:true, align:AlignmentType.CENTER}),
+        cell("용역사 현장소장 확인", {shade:true, bold:true, align:AlignmentType.CENTER}),
       ]}),
       new TableRow({ children: [
         cell(["", "", "", ""]),
@@ -247,18 +290,18 @@ function buildDocx(d, rows) {
         new Paragraph({ children: [new TextRun({ text: "※ 관리감독자는 아래 사항을 작업자들에게 전파하고 지적확인을 실시해 주십시오.", size: 18, italics: true })] }),
         riskTable,
         new Paragraph({ children: [new TextRun({ text: " " })] }),
-        new Paragraph({ children: [new TextRun({ text: "3. 참석자 서명 및 종사자 의견 청취 (작업자 작성란)", bold: true, size: 24 })] }),
-        new Paragraph({ children: [new TextRun({ text: "※ D-안전소통보드 확인 서명과 작업 중 예상되는 위험요인, 개선 건의사항 및 안전다짐을 자유롭게 적어주세요.", size: 18, italics: true })] }),
+        new Paragraph({ children: [new TextRun({ text: "3. 참석자 서명 및 종사자 의견 청취", bold: true, size: 24 })] }),
         signTable,
         new Paragraph({ children: [new TextRun({ text: " " })] }),
-        new Paragraph({ children: [new TextRun({ text: "4. 현장 조치 결과 및 확인 (현장소장 작성란)", bold: true, size: 24 })] }),
+        new Paragraph({ children: [new TextRun({ text: "4. 현장 조치 결과 및 확인", bold: true, size: 24 })] }),
         finalTable,
       ]
     }]
   });
 
   Packer.toBlob(doc).then(blob => {
-    saveAs(blob, `D-안전소통보드_${d.일자.replace('/','')}_${d.작업장소}.docx`);
+    const safe = (d.작업장소 || 'output').replace(/[\/\\:*?"<>|]/g,'_');
+    saveAs(blob, `D-안전소통보드_${d.일자.replace('/','')}_${safe}.docx`);
   });
 }
 </script>
