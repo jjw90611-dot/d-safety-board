@@ -3,53 +3,94 @@
 <head>
 <meta charset="UTF-8">
 <title>D-안전소통보드 자동 생성기</title>
-<!-- ✅ 검증된 CDN (jsdelivr, UMD 빌드) -->
-<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 <style>
   body { font-family: 'Malgun Gothic', sans-serif; max-width: 1200px; margin: 20px auto; padding: 20px; }
   h1 { color: #003876; }
   textarea { width: 100%; height: 300px; font-family: monospace; font-size: 12px; padding: 10px; border: 2px solid #003876; border-radius: 6px; }
   button { background: #003876; color: white; border: none; padding: 14px 30px; font-size: 16px; font-weight: bold; border-radius: 6px; cursor: pointer; margin-top: 10px; }
   button:hover { background: #002850; }
+  button:disabled { background: #999; cursor: not-allowed; }
   .info { background: #f0f4f8; padding: 15px; border-left: 4px solid #003876; margin: 15px 0; border-radius: 4px; }
   #status { margin-top: 15px; padding: 10px; border-radius: 4px; }
   .success { background: #d4edda; color: #155724; }
   .error { background: #f8d7da; color: #721c24; }
-  #libStatus { font-size: 12px; color: #666; margin-top: 5px; }
+  .loading { background: #fff3cd; color: #856404; }
+  #libStatus { font-size: 13px; margin-top: 10px; padding: 8px; border-radius: 4px; }
 </style>
 </head>
 <body>
   <h1>🛡️ D-안전소통보드 자동 생성기</h1>
   <div class="info">
-    <b>사용법:</b> 엑셀에서 <b>데이터 행</b>을 통째로 복사(헤더 포함되어도 OK)한 후 붙여넣고 <b>[워드 파일 생성]</b> 버튼을 클릭하세요.
+    <b>사용법:</b> 엑셀에서 데이터를 복사(헤더 포함되어도 OK) 후 붙여넣고 <b>[워드 파일 생성]</b> 클릭
   </div>
+  <div id="libStatus" class="loading">⏳ 라이브러리 로딩 중...</div>
   <textarea id="input" placeholder="여기에 엑셀 데이터를 붙여넣으세요..."></textarea>
   <br>
-  <button onclick="generateWord()">📄 워드 파일 생성</button>
-  <div id="libStatus"></div>
+  <button id="genBtn" onclick="generateWord()" disabled>📄 워드 파일 생성</button>
   <div id="status"></div>
 
 <script>
-// 라이브러리 로드 확인
-window.addEventListener('load', () => {
-  const ls = document.getElementById('libStatus');
-  if (typeof docx === 'undefined') {
-    ls.textContent = '⚠️ docx 라이브러리 로드 실패 - 네트워크 확인 필요';
-    ls.style.color = 'red';
-  } else {
-    ls.textContent = '✅ 라이브러리 정상 로드됨 (docx v' + (docx.version || '8.5.0') + ')';
-    ls.style.color = 'green';
-  }
-});
+// ✅ 여러 CDN을 순차 시도
+const CDN_LIST = [
+  'https://unpkg.com/docx@8.5.0/build/index.umd.js',
+  'https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/docx/8.5.0/docx.umd.min.js'
+];
+const FILESAVER_CDN = 'https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js';
 
-function setStatus(msg, isError) {
-  const s = document.getElementById('status');
-  s.textContent = msg;
-  s.className = isError ? 'error' : 'success';
+function loadScript(url) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = url;
+    s.onload = () => resolve(url);
+    s.onerror = () => reject(url);
+    document.head.appendChild(s);
+  });
 }
 
-// 엑셀 붙여넣기 파싱 (탭 구분 + 따옴표 안 줄바꿈 처리)
+async function loadDocxLib() {
+  const status = document.getElementById('libStatus');
+  for (const url of CDN_LIST) {
+    try {
+      status.textContent = '⏳ 시도 중: ' + url;
+      await loadScript(url);
+      if (typeof docx !== 'undefined' || typeof window.docx !== 'undefined') {
+        return true;
+      }
+    } catch(e) {
+      console.warn('실패:', url);
+    }
+  }
+  return false;
+}
+
+(async () => {
+  const status = document.getElementById('libStatus');
+  const btn = document.getElementById('genBtn');
+  try {
+    await loadScript(FILESAVER_CDN);
+    const ok = await loadDocxLib();
+    if (ok && typeof docx !== 'undefined') {
+      status.className = 'success';
+      status.textContent = '✅ 라이브러리 로드 완료 - 이제 사용 가능합니다!';
+      btn.disabled = false;
+    } else {
+      status.className = 'error';
+      status.textContent = '❌ 모든 CDN 로드 실패 - 회사 방화벽에서 CDN이 차단된 것 같습니다. 관리자에게 문의하세요.';
+    }
+  } catch(e) {
+    status.className = 'error';
+    status.textContent = '❌ 로딩 오류: ' + e;
+  }
+})();
+
+function setStatus(msg, cls) {
+  const s = document.getElementById('status');
+  s.textContent = msg;
+  s.className = cls;
+}
+
+// 엑셀 한 행 파싱 (탭 구분, 따옴표 내 줄바꿈 유지)
 function parseExcelRow(text) {
   const fields = [];
   let cur = '';
@@ -69,37 +110,32 @@ function parseExcelRow(text) {
   return fields;
 }
 
-// 전체 텍스트에서 "데이터 행"만 찾기 (날짜로 시작하는 행)
+// 전체 텍스트에서 데이터 행(날짜 시작) 추출
 function findDataRow(fullText) {
-  // 따옴표 안 줄바꿈은 유지, 따옴표 밖 줄바꿈만 행 구분자로 사용
   const rows = [];
   let cur = '';
   let inQuote = false;
   for (let i = 0; i < fullText.length; i++) {
     const c = fullText[i];
-    if (c === '"') {
-      inQuote = !inQuote;
-      cur += c;
-    } else if ((c === '\n' || c === '\r') && !inQuote) {
+    if (c === '"') { inQuote = !inQuote; cur += c; }
+    else if ((c === '\n' || c === '\r') && !inQuote) {
       if (cur.trim()) rows.push(cur);
       cur = '';
+      if (c === '\r' && fullText[i+1] === '\n') i++;
     } else {
       cur += c;
     }
   }
   if (cur.trim()) rows.push(cur);
   
-  // 날짜 패턴(M/D 또는 MM/DD)으로 시작 + 탭이 여러 개 있는 행 찾기
   for (const row of rows) {
-    const firstField = row.split('\t')[0].trim();
-    if (/^\d{1,2}\/\d{1,2}$/.test(firstField) && row.split('\t').length > 10) {
-      return row;
-    }
+    const first = row.split('\t')[0].trim();
+    if (/^\d{1,2}\/\d{1,2}$/.test(first)) return row;
   }
-  return rows[rows.length - 1]; // 못 찾으면 마지막 행
+  return rows[rows.length - 1];
 }
 
-// 잠재위험/조치사항을 번호별로 분리
+// 번호별 분리
 function splitByNumber(text) {
   if (!text) return [];
   const lines = text.split(/\r?\n/);
@@ -108,10 +144,14 @@ function splitByNumber(text) {
   for (let line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    const match = trimmed.match(/^(\d+(?:-\d+)?\.|\*|※)\s*(.*)/);
-    if (match) {
+    const m = trimmed.match(/^(\d+(?:-\d+)?)\.\s*(.*)/);
+    const star = trimmed.match(/^\*\s*(.*)/);
+    if (m) {
       if (current) items.push(current);
-      current = { no: match[1].replace('.',''), text: match[2] };
+      current = { no: m[1], text: m[2] };
+    } else if (star) {
+      if (current) items.push(current);
+      current = { no: '*', text: star[1] };
     } else if (current) {
       current.text += ' ' + trimmed;
     } else {
@@ -125,21 +165,23 @@ function splitByNumber(text) {
 function generateWord() {
   try {
     if (typeof docx === 'undefined') {
-      setStatus('❌ docx 라이브러리가 로드되지 않았습니다. 페이지를 새로고침 하세요.', true);
+      setStatus('❌ docx 라이브러리가 아직 로드되지 않았습니다.', 'error');
       return;
     }
-
     const raw = document.getElementById('input').value;
-    if (!raw.trim()) { setStatus('❌ 데이터를 붙여넣어 주세요.', true); return; }
+    if (!raw.trim()) { setStatus('❌ 데이터를 붙여넣어 주세요.', 'error'); return; }
 
     const dataRow = findDataRow(raw);
     const f = parseExcelRow(dataRow);
-    console.log('데이터 행:', dataRow);
-    console.log('파싱된 필드 수:', f.length);
-    console.log('필드 목록:', f);
+    console.log('필드 수:', f.length, '내용:', f);
 
-    // 컬럼 자동 감지 (날짜가 [0], 그 다음 NO, 고위험, 부서... 순)
-    const data = {
+    // CCTV는 마지막 필드
+    const cctv = (f[f.length - 1] || '').trim();
+    // 감시자이름은 뒤에서 2번째, 소속은 뒤에서 3번째
+    const monName = (f[f.length - 2] || '').trim();
+    const monDept = (f[f.length - 3] || '').trim();
+
+    const d = {
       일자: f[0] || '',
       NO: f[1] || '',
       고위험: f[2] || '',
@@ -156,34 +198,31 @@ function generateWord() {
       협력사담당자: f[13] || '',
       잠재위험: f[14] || '',
       조치사항: f[15] || '',
-      감시자소속: f[27] || f[f.length-3] || '',
-      감시자이름: f[28] || f[f.length-2] || '',
-      CCTV: (f[29] || f[f.length-1] || '').trim()
+      감시자소속: monDept,
+      감시자이름: monName,
+      CCTV: cctv
     };
+    console.log('매핑:', d);
 
-    console.log('매핑된 데이터:', data);
-
-    const risks = splitByNumber(data.잠재위험);
-    const actions = splitByNumber(data.조치사항);
-
-    // 번호 매칭
+    const risks = splitByNumber(d.잠재위험);
+    const actions = splitByNumber(d.조치사항);
     const allNos = [...new Set([...risks.map(r=>r.no), ...actions.map(a=>a.no)])];
     const rows = allNos.map(no => ({
-      no: no,
-      risk: (risks.find(x => x.no === no) || {}).text || '',
-      action: (actions.find(x => x.no === no) || {}).text || ''
+      no,
+      risk: (risks.find(x=>x.no===no)||{}).text || '',
+      action: (actions.find(x=>x.no===no)||{}).text || ''
     }));
 
-    buildDocx(data, rows);
-    setStatus('✅ 워드 파일이 생성되어 다운로드되었습니다! (항목 ' + rows.length + '개)', false);
-  } catch (e) {
+    buildDocx(d, rows);
+    setStatus('✅ 워드 파일 다운로드 완료! (위험/조치 ' + rows.length + '개 항목)', 'success');
+  } catch(e) {
     console.error(e);
-    setStatus('❌ 오류: ' + e.message, true);
+    setStatus('❌ 오류: ' + e.message, 'error');
   }
 }
 
 function buildDocx(d, rows) {
-  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle } = docx;
+  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType } = docx;
 
   function cell(text, opts = {}) {
     const texts = Array.isArray(text) ? text : String(text).split('\n');
