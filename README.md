@@ -1,23 +1,29 @@
 # D-안전소통보드 자동 생성기
 
-포스코퓨처엠 현장 관리자용 · D-1 안전회의 결과를 D-안전소통보드로 자동 변환
+포스코퓨처엠 · D-1 안전회의 결과를 D-안전소통보드로 **100% 자동** 변환
+(외부 API 불필요, 완전 오프라인 동작)
 
-## 🛠️ 기술 스택
-- Frontend: HTML + CSS + Vanilla JavaScript
-- Backend: Cloudflare Pages Functions (서버리스)
-- AI: Google Gemini 2.0 Flash (무료 티어)
-- 배포: Cloudflare Pages + GitHub
+## 🚀 배포 방법 (Cloudflare Pages)
 
-## 🚀 배포 방법
+1. GitHub 저장소에 4개 파일 업로드 (`index.html`, `style.css`, `script.js`, `README.md`)
+2. Cloudflare 대시보드 → Workers & Pages → Create → Pages → Connect to Git
+3. 저장소 선택 → 빌드 설정은 모두 비워둔 채 **Save and Deploy**
+4. `https://프로젝트명.pages.dev` 접속
 
-### 1. Gemini API Key 발급 (무료)
-- https://aistudio.google.com/apikey 접속 → "Create API key"
-- 발급받은 키를 복사
+## 💡 사용법
 
-### 2. GitHub 저장소 생성
-```bash
-git init
-git add .
-git commit -m "initial commit"
-git remote add origin https://github.com/USER/d-safety-board.git
-git push -u origin main
+1. 엑셀에서 D-1 안전회의 결과 시트의 **데이터 행 1개** 선택 → Ctrl+C
+2. 웹페이지 텍스트박스에 Ctrl+V
+3. `[✨ 보드 생성]` 클릭
+4. `[📄 워드 다운로드]` 또는 `[🖨️ 인쇄]`
+
+## ✨ 기능
+
+- ✅ 공장+작업장소 자동 결합
+- ✅ 작업순서에 원문자(①②③) 자동 부여
+- ✅ CCTV O/X → "가동 중/미가동" 자동 변환
+- ✅ 잠재위험/조치사항의 "1., 1-1., 2." 형식 자동 파싱 및 매칭
+- ✅ **6~8월 → 폭염, 12~2월 → 한파** 계절 위험 자동 추가
+- ✅ 작업인원 수만큼 서명란 행 자동 생성
+- ✅ 자주 틀리는 안전용어 오탈자 자동 교정 (사전 기반)
+- ✅ 워드 다운로드 시 서식·폰트 유지
