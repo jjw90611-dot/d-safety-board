@@ -21,7 +21,7 @@
 <body>
   <h1>🛡️ D-안전소통보드 자동 생성기</h1>
   <div class="info">
-    <b>사용법:</b> 엑셀에서 데이터를 복사(헤더 포함되어도 OK) 후 붙여넣고 <b>[워드 파일 생성]</b> 클릭
+    <b>사용법:</b> 엑셀에서 데이터 복사(헤더 포함 OK) → 붙여넣기 → <b>[워드 파일 생성]</b> 클릭
   </div>
   <div id="libStatus" class="loading">⏳ 라이브러리 로딩 중...</div>
   <textarea id="input" placeholder="여기에 엑셀 데이터를 붙여넣으세요..."></textarea>
@@ -36,7 +36,7 @@ const CDN_LIST = [
   'https://cdnjs.cloudflare.com/ajax/libs/docx/8.5.0/docx.umd.min.js'
 ];
 const FILESAVER_CDN = 'https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js';
-const FONT = "나눔바른고딕";  // ✅ 통일 글씨체
+const FONT = "나눔바른고딕";
 
 function loadScript(url) {
   return new Promise((resolve, reject) => {
@@ -68,7 +68,7 @@ async function loadDocxLib() {
     const ok = await loadDocxLib();
     if (ok && typeof docx !== 'undefined') {
       status.className = 'success';
-      status.textContent = '✅ 라이브러리 로드 완료 - 이제 사용 가능합니다!';
+      status.textContent = '✅ 라이브러리 로드 완료!';
       btn.disabled = false;
     } else {
       status.className = 'error';
@@ -144,13 +144,22 @@ function splitByNumber(text) {
   return items;
 }
 
-// ✅ 작업장소 중복 제거 (공백 무시 비교)
 function mergeLocation(plant, place) {
   const norm = s => (s || '').replace(/\s+/g, '').trim();
   if (!plant) return place || '';
   if (!place) return plant;
   if (norm(plant) === norm(place)) return plant;
   return plant + " / " + place;
+}
+
+// ✅ 작업명 여러 항목을 줄바꿈으로 분리
+function splitJobNames(text) {
+  if (!text) return [''];
+  const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(l=>l);
+  if (lines.length > 1) return lines;
+  // 한 줄에 "1. ... 2. ..." 로 붙어있는 경우 분리
+  const parts = text.split(/(?=\d+\.\s)/).map(s=>s.trim()).filter(s=>s);
+  return parts.length > 0 ? parts : [text];
 }
 
 function generateWord() {
@@ -204,17 +213,24 @@ function generateWord() {
 }
 
 function buildDocx(d, rows) {
-  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType } = docx;
+  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
+          WidthType, AlignmentType, HeightRule, VerticalAlign } = docx;
 
-  // ✅ 모든 셀에 나눔바른고딕 적용
+  // ✅ 셀 여백(패딩)을 넉넉하게 → 가독성 UP
+  const CELL_MARGIN = { top: 120, bottom: 120, left: 120, right: 120 };
+
   function cell(text, opts = {}) {
     const texts = Array.isArray(text) ? text : String(text).split('\n');
     return new TableCell({
       shading: opts.shade ? { fill: "D9E2F3" } : undefined,
       columnSpan: opts.span,
+      rowSpan: opts.rowSpan,
+      verticalAlign: VerticalAlign.CENTER,
+      margins: CELL_MARGIN,
       width: opts.width ? { size: opts.width, type: WidthType.PERCENTAGE } : undefined,
       children: texts.map(t => new Paragraph({
         alignment: opts.align || AlignmentType.LEFT,
+        spacing: { before: 40, after: 40, line: 300 },  // ✅ 줄 간격 여유
         children: [new TextRun({
           text: String(t),
           bold: opts.bold || false,
@@ -225,59 +241,78 @@ function buildDocx(d, rows) {
     });
   }
 
-  // ✅ 모든 표를 5열 균등(각 20%)으로 통일
-  const COL = 20;
   const 작업장소_통합 = mergeLocation(d.운전공장, d.작업장소);
+  const 작업명_리스트 = splitJobNames(d.작업명);
 
+  // ✅ 1번 표: 작업명 넓게 (일자 12%, 시간 14%, 장소 16%, 작업명 46%, 인원 12%)
+  //    twip 기준: 페이지 폭 약 9600 → 1150 / 1350 / 1550 / 4400 / 1150
   const infoTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
-    columnWidths: [2000, 2000, 2000, 2000, 2000],
+    columnWidths: [1150, 1350, 1550, 4400, 1150],
     rows: [
-      new TableRow({ children: [
-        cell("일자", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
-        cell("작업시간", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
-        cell("작업장소", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
-        cell("작업명", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
-        cell("작업인원", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
-      ]}),
-      new TableRow({ children: [
-        cell(d.일자, {align:AlignmentType.CENTER, width:COL}),
-        cell(d.작업시간, {align:AlignmentType.CENTER, width:COL}),
-        cell(작업장소_통합, {align:AlignmentType.CENTER, width:COL}),
-        cell(d.작업명, {width:COL}),
-        cell(d.인원 + "명", {align:AlignmentType.CENTER, width:COL}),
-      ]}),
-      new TableRow({ children: [
-        cell("작업담당자", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
-        cell("용역사(수행사)", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
-        cell("용역사 담당자", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
-        cell("안전Monitor요원", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
-        cell("CCTV 가동", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
-      ]}),
-      new TableRow({ children: [
-        cell(d.작업담당자, {align:AlignmentType.CENTER, width:COL}),
-        cell(d.협력사, {align:AlignmentType.CENTER, width:COL}),
-        cell(d.협력사담당자, {align:AlignmentType.CENTER, width:COL}),
-        cell(d.감시자이름 + (d.감시자소속 ? " ("+d.감시자소속+")" : ""), {align:AlignmentType.CENTER, width:COL}),
-        cell(d.CCTV === 'O' || d.CCTV.includes('가동') ? "가동 중(O)" : "미가동(X)", {align:AlignmentType.CENTER, width:COL}),
-      ]}),
+      new TableRow({
+        height: { value: 500, rule: HeightRule.ATLEAST },
+        children: [
+          cell("일자", {shade:true, bold:true, align:AlignmentType.CENTER}),
+          cell("작업시간", {shade:true, bold:true, align:AlignmentType.CENTER}),
+          cell("작업장소", {shade:true, bold:true, align:AlignmentType.CENTER}),
+          cell("작업명", {shade:true, bold:true, align:AlignmentType.CENTER}),
+          cell("작업인원", {shade:true, bold:true, align:AlignmentType.CENTER}),
+        ]
+      }),
+      new TableRow({
+        height: { value: 1200, rule: HeightRule.ATLEAST },  // ✅ 데이터 행 높이 확보
+        children: [
+          cell(d.일자, {align:AlignmentType.CENTER}),
+          cell(d.작업시간, {align:AlignmentType.CENTER}),
+          cell(작업장소_통합, {align:AlignmentType.CENTER}),
+          cell(작업명_리스트),  // ✅ 여러 줄 자동 표시
+          cell(d.인원 + "명", {align:AlignmentType.CENTER}),
+        ]
+      }),
+      new TableRow({
+        height: { value: 500, rule: HeightRule.ATLEAST },
+        children: [
+          cell("작업담당자", {shade:true, bold:true, align:AlignmentType.CENTER}),
+          cell("용역사(수행사)", {shade:true, bold:true, align:AlignmentType.CENTER}),
+          cell("용역사 담당자", {shade:true, bold:true, align:AlignmentType.CENTER}),
+          cell("안전Monitor요원", {shade:true, bold:true, align:AlignmentType.CENTER}),
+          cell("CCTV 가동", {shade:true, bold:true, align:AlignmentType.CENTER}),
+        ]
+      }),
+      new TableRow({
+        height: { value: 600, rule: HeightRule.ATLEAST },
+        children: [
+          cell(d.작업담당자, {align:AlignmentType.CENTER}),
+          cell(d.협력사, {align:AlignmentType.CENTER}),
+          cell(d.협력사담당자, {align:AlignmentType.CENTER}),
+          cell(d.감시자이름 + (d.감시자소속 ? " ("+d.감시자소속+")" : ""), {align:AlignmentType.CENTER}),
+          cell(d.CCTV === 'O' || d.CCTV.includes('가동') ? "가동 중(O)" : "미가동(X)", {align:AlignmentType.CENTER}),
+        ]
+      }),
     ]
   });
 
-  // 위험·조치 표 (3열)
+  // ✅ 위험·조치 표 (행 높이 여유)
   const riskRows = [
-    new TableRow({ children: [
-      cell("No.", {shade:true, bold:true, align:AlignmentType.CENTER}),
-      cell("⚠ 잠재위험", {shade:true, bold:true, align:AlignmentType.CENTER}),
-      cell("✅ 안전 조치사항", {shade:true, bold:true, align:AlignmentType.CENTER}),
-    ]})
+    new TableRow({
+      height: { value: 500, rule: HeightRule.ATLEAST },
+      children: [
+        cell("No.", {shade:true, bold:true, align:AlignmentType.CENTER}),
+        cell("⚠ 잠재위험", {shade:true, bold:true, align:AlignmentType.CENTER}),
+        cell("✅ 안전 조치사항", {shade:true, bold:true, align:AlignmentType.CENTER}),
+      ]
+    })
   ];
   rows.forEach(r => {
-    riskRows.push(new TableRow({ children: [
-      cell(r.no, {align:AlignmentType.CENTER, bold:true}),
-      cell(r.risk),
-      cell(r.action),
-    ]}));
+    riskRows.push(new TableRow({
+      height: { value: 800, rule: HeightRule.ATLEAST },  // ✅ 각 위험행 높이
+      children: [
+        cell(r.no, {align:AlignmentType.CENTER, bold:true}),
+        cell(r.risk),
+        cell(r.action),
+      ]
+    }));
   });
   const riskTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -285,21 +320,27 @@ function buildDocx(d, rows) {
     rows: riskRows
   });
 
-  // 참석자 서명표 (5열)
+  // ✅ 참석자 서명표 (서명 칸 크게)
   const signRows = [
-    new TableRow({ children: [
-      cell("No.", {shade:true, bold:true, align:AlignmentType.CENTER}),
-      cell("소속", {shade:true, bold:true, align:AlignmentType.CENTER}),
-      cell("성명", {shade:true, bold:true, align:AlignmentType.CENTER}),
-      cell("서명", {shade:true, bold:true, align:AlignmentType.CENTER}),
-      cell("종사자 의견 (위험요인, 개선 건의사항 및 안전다짐)", {shade:true, bold:true, align:AlignmentType.CENTER}),
-    ]})
+    new TableRow({
+      height: { value: 500, rule: HeightRule.ATLEAST },
+      children: [
+        cell("No.", {shade:true, bold:true, align:AlignmentType.CENTER}),
+        cell("소속", {shade:true, bold:true, align:AlignmentType.CENTER}),
+        cell("성명", {shade:true, bold:true, align:AlignmentType.CENTER}),
+        cell("서명", {shade:true, bold:true, align:AlignmentType.CENTER}),
+        cell("종사자 의견 (위험요인, 개선 건의사항 및 안전다짐)", {shade:true, bold:true, align:AlignmentType.CENTER}),
+      ]
+    })
   ];
   for (let i = 1; i <= d.인원; i++) {
-    signRows.push(new TableRow({ children: [
-      cell(String(i), {align:AlignmentType.CENTER}),
-      cell(""), cell(""), cell("(서명)", {align:AlignmentType.CENTER}), cell("")
-    ]}));
+    signRows.push(new TableRow({
+      height: { value: 900, rule: HeightRule.ATLEAST },  // ✅ 서명 여유(약 1.6cm)
+      children: [
+        cell(String(i), {align:AlignmentType.CENTER}),
+        cell(""), cell(""), cell(""), cell("")
+      ]
+    }));
   }
   const signTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -307,25 +348,48 @@ function buildDocx(d, rows) {
     rows: signRows
   });
 
-  // ✅ 현장 조치 결과 및 확인 (용역사 현장소장 + 현장소장 2단 서명)
+  // ✅ 4번 표: 원본 양식대로 상하 2행 (좌: 조치결과 / 우: 확인란)
+  //    행1 → 용역사 현장소장 확인
+  //    행2 → 현장소장 확인
   const finalTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
-    columnWidths: [6000, 2000, 2000],
+    columnWidths: [7000, 3000],
     rows: [
-      new TableRow({ children: [
-        cell("종사자 의견에 대한 현장 조치 결과 (즉시 개선사항 기재)", {shade:true, bold:true, align:AlignmentType.CENTER}),
-        cell("용역사 현장소장 확인", {shade:true, bold:true, align:AlignmentType.CENTER}),
-        cell("현장소장 확인", {shade:true, bold:true, align:AlignmentType.CENTER}),
-      ]}),
-      new TableRow({ children: [
-        cell(["", "", "", ""]),
-        cell(["", "(서명)", ""], {align:AlignmentType.CENTER}),
-        cell(["", "(서명)", ""], {align:AlignmentType.CENTER}),
-      ]}),
+      // 헤더 행
+      new TableRow({
+        height: { value: 500, rule: HeightRule.ATLEAST },
+        children: [
+          cell("종사자 의견에 대한 현장 조치 결과 (즉시 개선사항 기재)", {shade:true, bold:true, align:AlignmentType.CENTER}),
+          cell("용역사 현장소장 확인", {shade:true, bold:true, align:AlignmentType.CENTER}),
+        ]
+      }),
+      // 데이터 행 1
+      new TableRow({
+        height: { value: 1800, rule: HeightRule.ATLEAST },  // ✅ 넉넉히
+        children: [
+          cell(""),
+          cell(["", "(서명)", ""], {align:AlignmentType.CENTER}),
+        ]
+      }),
+      // 헤더 행 2
+      new TableRow({
+        height: { value: 500, rule: HeightRule.ATLEAST },
+        children: [
+          cell("종사자 의견에 대한 현장 조치 결과 (즉시 개선사항 기재)", {shade:true, bold:true, align:AlignmentType.CENTER}),
+          cell("현장소장 확인", {shade:true, bold:true, align:AlignmentType.CENTER}),
+        ]
+      }),
+      // 데이터 행 2
+      new TableRow({
+        height: { value: 1800, rule: HeightRule.ATLEAST },
+        children: [
+          cell(""),
+          cell(["", "(서명)", ""], {align:AlignmentType.CENTER}),
+        ]
+      }),
     ]
   });
 
-  // ✅ 문서 전체 기본 폰트 지정
   const doc = new Document({
     styles: {
       default: {
@@ -335,20 +399,25 @@ function buildDocx(d, rows) {
       }
     },
     sections: [{
+      properties: {
+        page: {
+          margin: { top: 720, right: 720, bottom: 720, left: 720 }  // ✅ 페이지 여백 축소로 표 폭 확보
+        }
+      },
       children: [
         new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "[ D-안전소통보드 및 종사자 의견 청취서 ]", bold: true, size: 32, font: FONT })] }),
         new Paragraph({ children: [new TextRun({ text: " ", font: FONT })] }),
         new Paragraph({ children: [new TextRun({ text: "1. 작업 기본 정보", bold: true, size: 24, font: FONT })] }),
         infoTable,
         new Paragraph({ children: [new TextRun({ text: " ", font: FONT })] }),
-        new Paragraph({ children: [new TextRun({ text: "2. 주요 작업순서별 잠재위험 및 안전 조치사항", bold: true, size: 24, font: FONT })] }),
+        new Paragraph({ children: [new TextRun({ text: "2. 주요 작업순서별 잠재위험 및 안전 조치사항 (TBM 리딩용)", bold: true, size: 24, font: FONT })] }),
         new Paragraph({ children: [new TextRun({ text: "※ 관리감독자는 아래 사항을 작업자들에게 전파하고 지적확인을 실시해 주십시오.", size: 18, italics: true, font: FONT })] }),
         riskTable,
         new Paragraph({ children: [new TextRun({ text: " ", font: FONT })] }),
         new Paragraph({ children: [new TextRun({ text: "3. 참석자 서명 및 종사자 의견 청취", bold: true, size: 24, font: FONT })] }),
         signTable,
         new Paragraph({ children: [new TextRun({ text: " ", font: FONT })] }),
-        new Paragraph({ children: [new TextRun({ text: "4. 현장 조치 결과 및 확인", bold: true, size: 24, font: FONT })] }),
+        new Paragraph({ children: [new TextRun({ text: "4. 현장 조치 결과 및 확인 (현장소장 작성란)", bold: true, size: 24, font: FONT })] }),
         finalTable,
       ]
     }]
