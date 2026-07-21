@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>D-안전소통보드 자동 생성기</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  <script src="https://unpkg.com/html-docx-js/dist/html-docx.js"></script>
+</head>
+<body>
+  <header>
+    <h1>🛡️ D-안전소통보드 자동 생성기</h1>
+    <p class="subtitle">POSCO FUTURE M · D-1 안전회의 결과 → D-안전소통보드 자동 변환</p>
+  </header>
+
+  <main>
+    <section class="input-section">
+      <label for="excelInput">
+        <strong>1단계.</strong> 엑셀의 'D-1 안전회의 결과' 데이터를 복사해서 붙여넣으세요 (Ctrl+V)
+      </label>
+      <textarea id="excelInput" rows="12" 
+        placeholder="예시)&#10;일자&#9;공장&#9;작업장소&#9;작업명&#9;작업인원&#9;...&#10;2024-01-15&#9;1공장&#9;보일러실&#9;배관보수&#9;9&#9;..."></textarea>
+      
+      <div class="btn-group">
+        <button id="generateBtn" class="btn primary">
+          ✨ AI로 보드 생성
+        </button>
+        <button id="clearBtn" class="btn ghost">🧹 초기화</button>
+        <button id="exportBtn" class="btn success" disabled>
+          📄 워드(.docx) 다운로드
+        </button>
+        <button id="printBtn" class="btn info" disabled>
+          🖨️ 인쇄
+        </button>
+      </div>
+
+      <div id="status" class="status hidden"></div>
+    </section>
+
+    <section class="output-section">
+      <h2>📋 D-안전소통보드 미리보기</h2>
+      <div id="board" class="board">
+        <p class="placeholder">엑셀 데이터를 붙여넣고 [AI로 보드 생성] 버튼을 눌러주세요.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <small>© POSCO FUTURE M · D-안전소통보드 (구 D-안전카드)</small>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
