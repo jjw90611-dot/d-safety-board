@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <title>D-안전소통보드 자동 생성기</title>
 <style>
-  body { font-family: 'Malgun Gothic', sans-serif; max-width: 1200px; margin: 20px auto; padding: 20px; }
+  body { font-family: 'NanumBarunGothic', 'Malgun Gothic', sans-serif; max-width: 1200px; margin: 20px auto; padding: 20px; }
   h1 { color: #003876; }
   textarea { width: 100%; height: 300px; font-family: monospace; font-size: 12px; padding: 10px; border: 2px solid #003876; border-radius: 6px; }
   button { background: #003876; color: white; border: none; padding: 14px 30px; font-size: 16px; font-weight: bold; border-radius: 6px; cursor: pointer; margin-top: 10px; }
@@ -30,13 +30,13 @@
   <div id="status"></div>
 
 <script>
-// ✅ 여러 CDN을 순차 시도
 const CDN_LIST = [
   'https://unpkg.com/docx@8.5.0/build/index.umd.js',
   'https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js',
   'https://cdnjs.cloudflare.com/ajax/libs/docx/8.5.0/docx.umd.min.js'
 ];
 const FILESAVER_CDN = 'https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js';
+const FONT = "나눔바른고딕";  // ✅ 통일 글씨체
 
 function loadScript(url) {
   return new Promise((resolve, reject) => {
@@ -54,12 +54,8 @@ async function loadDocxLib() {
     try {
       status.textContent = '⏳ 시도 중: ' + url;
       await loadScript(url);
-      if (typeof docx !== 'undefined' || typeof window.docx !== 'undefined') {
-        return true;
-      }
-    } catch(e) {
-      console.warn('실패:', url);
-    }
+      if (typeof docx !== 'undefined' || typeof window.docx !== 'undefined') return true;
+    } catch(e) { console.warn('실패:', url); }
   }
   return false;
 }
@@ -76,7 +72,7 @@ async function loadDocxLib() {
       btn.disabled = false;
     } else {
       status.className = 'error';
-      status.textContent = '❌ 모든 CDN 로드 실패 - 회사 방화벽에서 CDN이 차단된 것 같습니다. 관리자에게 문의하세요.';
+      status.textContent = '❌ 모든 CDN 로드 실패';
     }
   } catch(e) {
     status.className = 'error';
@@ -90,31 +86,24 @@ function setStatus(msg, cls) {
   s.className = cls;
 }
 
-// 엑셀 한 행 파싱 (탭 구분, 따옴표 내 줄바꿈 유지)
 function parseExcelRow(text) {
   const fields = [];
-  let cur = '';
-  let inQuote = false;
+  let cur = '', inQuote = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (c === '"') {
       if (inQuote && text[i+1] === '"') { cur += '"'; i++; }
       else inQuote = !inQuote;
-    } else if (c === '\t' && !inQuote) {
-      fields.push(cur); cur = '';
-    } else {
-      cur += c;
-    }
+    } else if (c === '\t' && !inQuote) { fields.push(cur); cur = ''; }
+    else cur += c;
   }
   fields.push(cur);
   return fields;
 }
 
-// 전체 텍스트에서 데이터 행(날짜 시작) 추출
 function findDataRow(fullText) {
   const rows = [];
-  let cur = '';
-  let inQuote = false;
+  let cur = '', inQuote = false;
   for (let i = 0; i < fullText.length; i++) {
     const c = fullText[i];
     if (c === '"') { inQuote = !inQuote; cur += c; }
@@ -122,12 +111,9 @@ function findDataRow(fullText) {
       if (cur.trim()) rows.push(cur);
       cur = '';
       if (c === '\r' && fullText[i+1] === '\n') i++;
-    } else {
-      cur += c;
-    }
+    } else cur += c;
   }
   if (cur.trim()) rows.push(cur);
-  
   for (const row of rows) {
     const first = row.split('\t')[0].trim();
     if (/^\d{1,2}\/\d{1,2}$/.test(first)) return row;
@@ -135,7 +121,6 @@ function findDataRow(fullText) {
   return rows[rows.length - 1];
 }
 
-// 번호별 분리
 function splitByNumber(text) {
   if (!text) return [];
   const lines = text.split(/\r?\n/);
@@ -152,14 +137,20 @@ function splitByNumber(text) {
     } else if (star) {
       if (current) items.push(current);
       current = { no: '*', text: star[1] };
-    } else if (current) {
-      current.text += ' ' + trimmed;
-    } else {
-      current = { no: '-', text: trimmed };
-    }
+    } else if (current) current.text += ' ' + trimmed;
+    else current = { no: '-', text: trimmed };
   }
   if (current) items.push(current);
   return items;
+}
+
+// ✅ 작업장소 중복 제거 (공백 무시 비교)
+function mergeLocation(plant, place) {
+  const norm = s => (s || '').replace(/\s+/g, '').trim();
+  if (!plant) return place || '';
+  if (!place) return plant;
+  if (norm(plant) === norm(place)) return plant;
+  return plant + " / " + place;
 }
 
 function generateWord() {
@@ -173,27 +164,19 @@ function generateWord() {
 
     const dataRow = findDataRow(raw);
     const f = parseExcelRow(dataRow);
-    console.log('필드 수:', f.length, '내용:', f);
 
-    // CCTV는 마지막 필드
     const cctv = (f[f.length - 1] || '').trim();
-    // 감시자이름은 뒤에서 2번째, 소속은 뒤에서 3번째
     const monName = (f[f.length - 2] || '').trim();
     const monDept = (f[f.length - 3] || '').trim();
 
     const d = {
       일자: f[0] || '',
-      NO: f[1] || '',
-      고위험: f[2] || '',
-      운전부서: f[3] || '',
       운전공장: f[4] || '',
-      작업지시부서: f[5] || '',
       작업장소: f[6] || '',
       작업명: f[7] || '',
       인원: parseInt(f[8]) || 1,
       작업시간: f[9] || '',
       협력사: f[10] || '',
-      하도사: f[11] || '',
       작업담당자: f[12] || '',
       협력사담당자: f[13] || '',
       잠재위험: f[14] || '',
@@ -202,7 +185,6 @@ function generateWord() {
       감시자이름: monName,
       CCTV: cctv
     };
-    console.log('매핑:', d);
 
     const risks = splitByNumber(d.잠재위험);
     const actions = splitByNumber(d.조치사항);
@@ -224,52 +206,65 @@ function generateWord() {
 function buildDocx(d, rows) {
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType } = docx;
 
+  // ✅ 모든 셀에 나눔바른고딕 적용
   function cell(text, opts = {}) {
     const texts = Array.isArray(text) ? text : String(text).split('\n');
     return new TableCell({
       shading: opts.shade ? { fill: "D9E2F3" } : undefined,
       columnSpan: opts.span,
+      width: opts.width ? { size: opts.width, type: WidthType.PERCENTAGE } : undefined,
       children: texts.map(t => new Paragraph({
         alignment: opts.align || AlignmentType.LEFT,
-        children: [new TextRun({ text: String(t), bold: opts.bold || false, size: 20 })]
+        children: [new TextRun({
+          text: String(t),
+          bold: opts.bold || false,
+          size: 20,
+          font: FONT
+        })]
       }))
     });
   }
 
+  // ✅ 모든 표를 5열 균등(각 20%)으로 통일
+  const COL = 20;
+  const 작업장소_통합 = mergeLocation(d.운전공장, d.작업장소);
+
   const infoTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
+    columnWidths: [2000, 2000, 2000, 2000, 2000],
     rows: [
       new TableRow({ children: [
-        cell("일자", {shade:true, bold:true, align:AlignmentType.CENTER}),
-        cell("작업시간", {shade:true, bold:true, align:AlignmentType.CENTER}),
-        cell("작업장소", {shade:true, bold:true, align:AlignmentType.CENTER}),
-        cell("작업명", {shade:true, bold:true, align:AlignmentType.CENTER}),
-        cell("작업인원", {shade:true, bold:true, align:AlignmentType.CENTER}),
+        cell("일자", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
+        cell("작업시간", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
+        cell("작업장소", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
+        cell("작업명", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
+        cell("작업인원", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
       ]}),
       new TableRow({ children: [
-        cell(d.일자, {align:AlignmentType.CENTER}),
-        cell(d.작업시간, {align:AlignmentType.CENTER}),
-        cell(d.운전공장 + "\n" + d.작업장소, {align:AlignmentType.CENTER}),
-        cell(d.작업명),
-        cell(d.인원 + "명", {align:AlignmentType.CENTER}),
+        cell(d.일자, {align:AlignmentType.CENTER, width:COL}),
+        cell(d.작업시간, {align:AlignmentType.CENTER, width:COL}),
+        cell(작업장소_통합, {align:AlignmentType.CENTER, width:COL}),
+        cell(d.작업명, {width:COL}),
+        cell(d.인원 + "명", {align:AlignmentType.CENTER, width:COL}),
       ]}),
       new TableRow({ children: [
-        cell("작업담당자", {shade:true, bold:true, align:AlignmentType.CENTER}),
-        cell("용역사(수행사)", {shade:true, bold:true, align:AlignmentType.CENTER}),
-        cell("용역사 담당자", {shade:true, bold:true, align:AlignmentType.CENTER}),
-        cell("안전Monitor요원", {shade:true, bold:true, align:AlignmentType.CENTER}),
-        cell("CCTV 가동", {shade:true, bold:true, align:AlignmentType.CENTER}),
+        cell("작업담당자", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
+        cell("용역사(수행사)", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
+        cell("용역사 담당자", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
+        cell("안전Monitor요원", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
+        cell("CCTV 가동", {shade:true, bold:true, align:AlignmentType.CENTER, width:COL}),
       ]}),
       new TableRow({ children: [
-        cell(d.작업담당자, {align:AlignmentType.CENTER}),
-        cell(d.협력사, {align:AlignmentType.CENTER}),
-        cell(d.협력사담당자, {align:AlignmentType.CENTER}),
-        cell(d.감시자이름 + (d.감시자소속 ? " ("+d.감시자소속+")" : ""), {align:AlignmentType.CENTER}),
-        cell(d.CCTV === 'O' || d.CCTV.includes('가동') ? "가동 중(O)" : "미가동(X)", {align:AlignmentType.CENTER}),
+        cell(d.작업담당자, {align:AlignmentType.CENTER, width:COL}),
+        cell(d.협력사, {align:AlignmentType.CENTER, width:COL}),
+        cell(d.협력사담당자, {align:AlignmentType.CENTER, width:COL}),
+        cell(d.감시자이름 + (d.감시자소속 ? " ("+d.감시자소속+")" : ""), {align:AlignmentType.CENTER, width:COL}),
+        cell(d.CCTV === 'O' || d.CCTV.includes('가동') ? "가동 중(O)" : "미가동(X)", {align:AlignmentType.CENTER, width:COL}),
       ]}),
     ]
   });
 
+  // 위험·조치 표 (3열)
   const riskRows = [
     new TableRow({ children: [
       cell("No.", {shade:true, bold:true, align:AlignmentType.CENTER}),
@@ -284,8 +279,13 @@ function buildDocx(d, rows) {
       cell(r.action),
     ]}));
   });
-  const riskTable = new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: riskRows });
+  const riskTable = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    columnWidths: [800, 4600, 4600],
+    rows: riskRows
+  });
 
+  // 참석자 서명표 (5열)
   const signRows = [
     new TableRow({ children: [
       cell("No.", {shade:true, bold:true, align:AlignmentType.CENTER}),
@@ -301,45 +301,61 @@ function buildDocx(d, rows) {
       cell(""), cell(""), cell("(서명)", {align:AlignmentType.CENTER}), cell("")
     ]}));
   }
-  const signTable = new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: signRows });
+  const signTable = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    columnWidths: [700, 1800, 1500, 1500, 4500],
+    rows: signRows
+  });
 
+  // ✅ 현장 조치 결과 및 확인 (용역사 현장소장 + 현장소장 2단 서명)
   const finalTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
+    columnWidths: [6000, 2000, 2000],
     rows: [
       new TableRow({ children: [
         cell("종사자 의견에 대한 현장 조치 결과 (즉시 개선사항 기재)", {shade:true, bold:true, align:AlignmentType.CENTER}),
         cell("용역사 현장소장 확인", {shade:true, bold:true, align:AlignmentType.CENTER}),
+        cell("현장소장 확인", {shade:true, bold:true, align:AlignmentType.CENTER}),
       ]}),
       new TableRow({ children: [
         cell(["", "", "", ""]),
-        cell("(서명)", {align:AlignmentType.CENTER}),
+        cell(["", "(서명)", ""], {align:AlignmentType.CENTER}),
+        cell(["", "(서명)", ""], {align:AlignmentType.CENTER}),
       ]}),
     ]
   });
 
+  // ✅ 문서 전체 기본 폰트 지정
   const doc = new Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: FONT, size: 20 }
+        }
+      }
+    },
     sections: [{
       children: [
-        new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "[ D-안전소통보드 및 종사자 의견 청취서 ]", bold: true, size: 32 })] }),
-        new Paragraph({ children: [new TextRun({ text: " " })] }),
-        new Paragraph({ children: [new TextRun({ text: "1. 작업 기본 정보", bold: true, size: 24 })] }),
+        new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "[ D-안전소통보드 및 종사자 의견 청취서 ]", bold: true, size: 32, font: FONT })] }),
+        new Paragraph({ children: [new TextRun({ text: " ", font: FONT })] }),
+        new Paragraph({ children: [new TextRun({ text: "1. 작업 기본 정보", bold: true, size: 24, font: FONT })] }),
         infoTable,
-        new Paragraph({ children: [new TextRun({ text: " " })] }),
-        new Paragraph({ children: [new TextRun({ text: "2. 주요 작업순서별 잠재위험 및 안전 조치사항 (TBM 리딩용)", bold: true, size: 24 })] }),
-        new Paragraph({ children: [new TextRun({ text: "※ 관리감독자는 아래 사항을 작업자들에게 전파하고 지적확인을 실시해 주십시오.", size: 18, italics: true })] }),
+        new Paragraph({ children: [new TextRun({ text: " ", font: FONT })] }),
+        new Paragraph({ children: [new TextRun({ text: "2. 주요 작업순서별 잠재위험 및 안전 조치사항 (TBM 리딩용)", bold: true, size: 24, font: FONT })] }),
+        new Paragraph({ children: [new TextRun({ text: "※ 관리감독자는 아래 사항을 작업자들에게 전파하고 지적확인을 실시해 주십시오.", size: 18, italics: true, font: FONT })] }),
         riskTable,
-        new Paragraph({ children: [new TextRun({ text: " " })] }),
-        new Paragraph({ children: [new TextRun({ text: "3. 참석자 서명 및 종사자 의견 청취", bold: true, size: 24 })] }),
+        new Paragraph({ children: [new TextRun({ text: " ", font: FONT })] }),
+        new Paragraph({ children: [new TextRun({ text: "3. 참석자 서명 및 종사자 의견 청취", bold: true, size: 24, font: FONT })] }),
         signTable,
-        new Paragraph({ children: [new TextRun({ text: " " })] }),
-        new Paragraph({ children: [new TextRun({ text: "4. 현장 조치 결과 및 확인", bold: true, size: 24 })] }),
+        new Paragraph({ children: [new TextRun({ text: " ", font: FONT })] }),
+        new Paragraph({ children: [new TextRun({ text: "4. 현장 조치 결과 및 확인", bold: true, size: 24, font: FONT })] }),
         finalTable,
       ]
     }]
   });
 
   Packer.toBlob(doc).then(blob => {
-    const safe = (d.작업장소 || 'output').replace(/[\/\\:*?"<>|]/g,'_');
+    const safe = (작업장소_통합 || 'output').replace(/[\/\\:*?"<>|]/g,'_');
     saveAs(blob, `D-안전소통보드_${d.일자.replace('/','')}_${safe}.docx`);
   });
 }
