@@ -16,9 +16,25 @@
   .error { background: #f8d7da; color: #721c24; }
   .loading { background: #fff3cd; color: #856404; }
   #libStatus { font-size: 13px; margin-top: 10px; padding: 8px; border-radius: 4px; }
+
+  /* ✅ 조회수 카운터 스타일 (추가) */
+  .visitor-counter {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .visitor-counter img { height: 28px; }
 </style>
 </head>
 <body>
+
+  <!-- ✅ 조회수 카운터 배지 (추가) -->
+  <div class="visitor-counter">
+    <img src="https://hits.sh/posco-futurem-safety-board-today.svg?style=for-the-badge&label=Today&color=28a745&labelColor=20c997" alt="Today">
+    <img src="https://hits.sh/posco-futurem-safety-board-total.svg?style=for-the-badge&label=Total&color=003876&labelColor=0056b3" alt="Total">
+  </div>
+
   <h1>🛡️ D-안전소통보드 자동 생성기</h1>
   <div class="info">
     <b>사용법:</b> 엑셀에서 데이터 복사 → 붙여넣기 → <b>[워드 파일 생성]</b> 클릭
@@ -202,7 +218,6 @@ function generateWord() {
       action: (actions.find(x=>x.no===no)||{}).text || ''
     }));
 
-    // ✅ 위험/조치 항목 수, 인원수에 따라 행 높이 자동 조정 (페이지 낭비 방지)
     buildDocx(d, rows);
     setStatus('✅ 워드 파일 다운로드 완료! (위험/조치 ' + rows.length + '개 / 인원 ' + d.인원 + '명)', 'success');
   } catch(e) {
@@ -241,20 +256,12 @@ function buildDocx(d, rows) {
   const 작업장소_통합 = mergeLocation(d.운전공장, d.작업장소);
   const 작업명_리스트 = splitJobNames(d.작업명);
 
-  // ✅ 페이지 총량 계산 → 행 높이 자동 조정
-  //   기본적으로 A4 세로 페이지에서 표들이 적절히 배치되도록 아래 로직 사용
   const 총항목 = rows.length;
   const 총인원 = d.인원;
 
-  // 서명 행 높이: 인원이 적으면 크게, 많으면 줄여서 페이지 낭비 방지
   const 서명행높이 = 총인원 <= 8 ? 1100 : (총인원 <= 15 ? 850 : (총인원 <= 22 ? 700 : 600));
-  // 위험/조치 행 높이: 항목 많으면 축소
   const 위험행높이 = 총항목 <= 6 ? 900 : (총항목 <= 10 ? 750 : 650);
 
-  // ═══════════════════════════════════════════════════════════
-  // ① 상단 정보 표 (일자행) - 작업명 넓게
-  //    총 폭 10000 기준: 일자 1150 / 시간 1400 / 장소 1600 / 작업명 4700 / 인원 1150
-  // ═══════════════════════════════════════════════════════════
   const infoTable1 = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     columnWidths: [1150, 1400, 1600, 4700, 1150],
@@ -285,10 +292,6 @@ function buildDocx(d, rows) {
     ]
   });
 
-  // ═══════════════════════════════════════════════════════════
-  // ② 담당자 표 (별도 분리) - 각 칸 내용에 맞게
-  //    총 폭 10000: 작업담당자 1400 / 용역사 1600 / 용역사담당자 1600 / 안전모니터 3800 / CCTV 1600
-  // ═══════════════════════════════════════════════════════════
   const infoTable2 = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     columnWidths: [1400, 1600, 1600, 3800, 1600],
@@ -318,12 +321,9 @@ function buildDocx(d, rows) {
     ]
   });
 
-  // ═══════════════════════════════════════════════════════════
-  // ③ 위험·조치 표 (cantSplit로 행 페이지 넘김 방지)
-  // ═══════════════════════════════════════════════════════════
   const riskRows = [
     new TableRow({
-      tableHeader: true,  // ✅ 헤더 반복
+      tableHeader: true,
       cantSplit: true,
       height: { value: 450, rule: HeightRule.ATLEAST },
       children: [
@@ -335,7 +335,7 @@ function buildDocx(d, rows) {
   ];
   rows.forEach(r => {
     riskRows.push(new TableRow({
-      cantSplit: true,  // ✅ 이 행이 두 페이지에 걸치지 않게
+      cantSplit: true,
       height: { value: 위험행높이, rule: HeightRule.ATLEAST },
       children: [
         cell(r.no, {align:AlignmentType.CENTER, bold:true}),
@@ -350,10 +350,6 @@ function buildDocx(d, rows) {
     rows: riskRows
   });
 
-  // ═══════════════════════════════════════════════════════════
-  // ④ 참석자 서명표 - ✅ 소속 칸 확대
-  //    총 폭 10000: No 600 / 소속 2400 / 성명 1400 / 서명 1400 / 의견 4200
-  // ═══════════════════════════════════════════════════════════
   const signRows = [
     new TableRow({
       tableHeader: true,
@@ -371,7 +367,7 @@ function buildDocx(d, rows) {
   for (let i = 1; i <= d.인원; i++) {
     signRows.push(new TableRow({
       cantSplit: true,
-      height: { value: 서명행높이, rule: HeightRule.ATLEAST },  // ✅ 인원 수 따라 자동
+      height: { value: 서명행높이, rule: HeightRule.ATLEAST },
       children: [
         cell(String(i), {align:AlignmentType.CENTER}),
         cell(""), cell(""), cell(""), cell("")
@@ -380,14 +376,11 @@ function buildDocx(d, rows) {
   }
   const signTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
-    columnWidths: [600, 2400, 1400, 1400, 4200],  // ✅ 소속 1800→2400
+    columnWidths: [600, 2400, 1400, 1400, 4200],
     rows: signRows
   });
 
-  // ═══════════════════════════════════════════════════════════
-  // ⑤ 현장 조치 결과 (상하 2행)
-  // ═══════════════════════════════════════════════════════════
-  const 조치행높이 = 총인원 <= 10 ? 1700 : 1400;  // 서명 인원 많으면 살짝 축소
+  const 조치행높이 = 총인원 <= 10 ? 1700 : 1400;
   const finalTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     columnWidths: [7000, 3000],
@@ -429,7 +422,7 @@ function buildDocx(d, rows) {
 
   const 소제목 = (text) => new Paragraph({
     spacing: { before: 200, after: 100 },
-    keepNext: true,  // ✅ 소제목이 표와 떨어져 페이지 넘어가지 않게
+    keepNext: true,
     children: [new TextRun({ text, bold: true, size: 24, font: FONT })]
   });
 
@@ -460,7 +453,7 @@ function buildDocx(d, rows) {
         }),
         소제목("1. 작업 기본 정보"),
         infoTable1,
-        빈줄(),  // ✅ 두 표 사이 살짝 간격
+        빈줄(),
         infoTable2,
         소제목("2. 주요 작업순서별 잠재위험 및 안전 조치사항"),
         new Paragraph({
